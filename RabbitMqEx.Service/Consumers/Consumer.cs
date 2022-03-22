@@ -127,6 +127,45 @@ public class Consumer : BaseRabbitMq, IConsumer
         return body;
     }
 
+    public T? HeadersExchangeConsume<T>(HeadersExchangeConfigurationDto headersExchangeConfiguration,
+        QueueDeclareConfigurationDto? queueDeclareConfiguration = null,
+        BasicConsumeConfigurationDto? basicConsumeConfiguration = null,
+        FairDispatchConfigurationDto? fairDispatchConfiguration = null,
+        QueueBindConfigurationDto? queueBindConfiguration = null) where T : IRabbitMqObject
+    {
+        var body = default(T);
+        var (channel, connection) = CreateChannel();
+        queueBindConfiguration ??= new QueueBindConfigurationDto();
+        queueDeclareConfiguration ??= new QueueDeclareConfigurationDto();
+        basicConsumeConfiguration ??= new BasicConsumeConfigurationDto();
+        fairDispatchConfiguration ??= new FairDispatchConfigurationDto();
+        channel.QueueDeclare(headersExchangeConfiguration.QueueName, queueDeclareConfiguration.Durable, queueDeclareConfiguration.Exclusive,
+            queueDeclareConfiguration.AutoDelete, queueDeclareConfiguration.Arguments);
+
+        channel.QueueBind(headersExchangeConfiguration.QueueName, headersExchangeConfiguration.ExchangeName, string.Empty, headersExchangeConfiguration.ConsumerHeaders);
+
+        if (fairDispatchConfiguration.FairDispatchEnable)
+        {
+            channel.BasicQos(fairDispatchConfiguration.PrefetchSize, fairDispatchConfiguration.PrefetchCount, fairDispatchConfiguration.Global);
+        }
+
+
+        var consumer = new EventingBasicConsumer(channel);
+        consumer.Received += (sender, eventArgs) =>
+        {
+            var bodyBytes = eventArgs.Body.ToArray();
+            body = JsonSerializer.Deserialize<T>(bodyBytes);
+            if (!basicConsumeConfiguration.AutoAck)
+            {
+                channel.BasicAck(eventArgs.DeliveryTag, true);
+            }
+        };
+        channel.BasicConsume(headersExchangeConfiguration.QueueName, basicConsumeConfiguration.AutoAck, basicConsumeConfiguration.ConsumerTag, basicConsumeConfiguration.NoLocal, queueDeclareConfiguration.Exclusive, queueDeclareConfiguration.Arguments, consumer);
+        channel.Close();
+        connection.Close();
+        return body;
+    }
+
     #endregion
 
 
